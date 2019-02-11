@@ -50,7 +50,13 @@ PyDecoderPlugin::PyDecoderPlugin()
 
     object ignored = exec(
         "import os.path\n"
-        "exec(open(os.path.expanduser('~/.config/pydltdecoder.py')).read())",
+        "import logging\n"
+        "import sys\n"
+        "try:"
+        "   exec(open(os.path.expanduser('~/.config/pydltdecoder.py')).read())\n"
+        "except:"
+        "   logging.exception('Can not load the decoder. Will crash now:(')"
+        ,
         main_namespace);
     pyDelegate = main_namespace["decoder"];
 }
