@@ -1,4 +1,4 @@
-// Copyright (C) 2018, Vladimir Shapranov 
+// Copyright (C) 2018-2019, Vladimir Shapranov 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
@@ -12,6 +12,7 @@
 #include <Python.h>
 #include "pydecoderplugin.h"
 #include <QtGui>
+#include <stdio.h>
 
 using namespace boost::python;
 
@@ -23,11 +24,7 @@ dict msgToDict(const QDltMsg& msg){
     ret["ctx"] = str(msg.getCtid().toStdString());
     ret["ts"] = msg.getTimestamp();
     QByteArray pl = msg.getPayload();
-    // Should work, but gives some funny behaviour instead
-    // ret["pl"] = handle<>(PyMemoryView_FromMemory(pl.data(), pl.length(), PyBUF_READ));
-    // Works, but should not (pl is destroyed)
-    // ret["pl"] = handle<>(PyMemoryView_FromMemory((char*)pl.constData(), pl.length(), PyBUF_READ));
-
+    
     // Safe but inefficient since it copies the buffer
     ret["pl"] = handle<>(PyBytes_FromStringAndSize(pl.data(), pl.length()));
 
@@ -50,7 +47,6 @@ PyDecoderPlugin::PyDecoderPlugin()
     Py_Initialize();
     object main_module = import("__main__");
     dict main_namespace = extract<dict>(main_module.attr("__dict__"));
-    main_namespace["testvar"] = "test";
 
     object ignored = exec(
         "import os.path\n"
@@ -113,7 +109,14 @@ bool PyDecoderPlugin::isMsg(QDltMsg & msg, int triggeredByUser)
     }
 
     ScopedGil gil;
-    return extract<bool>(pyDelegate.attr("check_message")(msgToDict(msg)));
+    try{
+        return extract<bool>(pyDelegate.attr("check_message")(msgToDict(msg)));
+    }
+    catch (const error_already_set& ex)
+    {
+		fprintf(stderr, "Python exception from check_message! Please add try-except in your python code\n");
+        return false;
+    }   
 }
 
 bool PyDecoderPlugin::decodeMsg(QDltMsg &msg, int triggeredByUser)
@@ -121,8 +124,15 @@ bool PyDecoderPlugin::decodeMsg(QDltMsg &msg, int triggeredByUser)
     Q_UNUSED(msg);
     Q_UNUSED(triggeredByUser);
     ScopedGil gil;
-
-    tuple py_ret = extract<tuple>(pyDelegate.attr("decode_message")(msgToDict(msg)));
+	tuple py_ret;
+	try{
+    	py_ret = extract<tuple>(pyDelegate.attr("decode_message")(msgToDict(msg)));
+    }
+    catch (const error_already_set& ex)
+    {
+		fprintf(stderr, "Python exception from decode_message! Please add try-except in your python code\n");
+        return false;
+    }   
 
     bool success = extract<bool>(py_ret[0]);
     if (success)

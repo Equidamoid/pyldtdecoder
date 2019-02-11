@@ -1,4 +1,4 @@
-# Copyright (C) 2018, Vladimir Shapranov 
+# Copyright (C) 2018-2019, Vladimir Shapranov 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
@@ -17,9 +17,17 @@ class BaseDecoderPlugin:
         pass
 
     def check_message(self, msg):
+        """ 
+        Check whether this plugin should be used to decode the message"
+        """
         raise NotImplementedError()
 
     def decode_message(self, msg):
+        """
+        Decode the message, return a tuple: `(bool, str)`
+        the bool determines if the message should be displayed
+        the str is the message to be displayed
+        """
         raise NotImplementedError()
 
 class ReprDecoderPlugin(BaseDecoderPlugin):
@@ -50,5 +58,9 @@ class DecoderMaster(BaseDecoderPlugin):
             if i.check_message(msg):
                 return i.decode_message(msg)
         return False, ''
+
+# Create an instance of your decoder and put it to a global variable named "decoder"
+
 decoder = DecoderMaster()
 decoder.children.append(ReprDecoderPlugin())
+
