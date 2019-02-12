@@ -14,6 +14,8 @@ import logging
 import dltpy.dltfile
 import debus.marshalling
 
+
+
 class BaseDecoderPlugin:
     def load_config(self, fn):
         pass
@@ -46,18 +48,50 @@ class ReprDecoderPlugin(BaseDecoderPlugin):
         return True, repr(pl)
 
 class DBusDecoderPlugin(BaseDecoderPlugin):
+
+    formats = {
+        debus.MessageType.METHOD_CALL: '[0x{msg.serial:x}] M {msg.path} {msg.interface}.{msg.member} {msg.payload}',
+        debus.MessageType.METHOD_RETURN: '[0x{msg.serial:x}] R (0x{msg.reply_serial:x}) {msg.payload}',
+        debus.MessageType.ERROR: '[0x{msg.serial:x}] E (0x{msg.reply_serial:x}) {msg.payload}',
+        debus.MessageType.SIGNAL: '[0x{msg.serial:x}] M {msg.path} {msg.interface}.{msg.member} {msg.payload}',
+        debus.MessageType.METHOD_CALL: '[0x{msg.serial:x}] M {msg.path} {msg.interface} {msg.member} {msg.payload}',
+        debus.MessageType.INVALID: '[INVALID]',
+    }
     def __init__(self):
         self.cache = {}
+        self.segmented = {}
+        self.segmented_cache = {}
 
     def check_message(self, msg):
         return msg['app'] in ('DBSE', 'DBSY') and msg['ctx'] in ('DIN', 'DOUT')
     
     def decode_message(self, msg):
-        #logging.warning("app: %r, ctx: %r, ts: %d, payload: %r", msg['app'], msg['ctx'], msg['ts'], msg['pl'])
         pl = dltpy.dltfile.parse_payload(msg['pl'])
-        dbus_pl = pl[1]
+        if pl[0] == b'NWST':
+            return False, ''
+        if pl[0] == b'NWCH':
+            s_id = pl[1]
+            if not s_id in self.segmented_cache:
+                self.segmented.setdefault(s_id, b'')
+                self.segmented[s_id] += pl[3]
+            return True, '[segmented] %d bytes' % len(pl[3])
+        elif pl[0] == b'NWEN':
+            s_id = pl[1]
+            if s_id in self.segmented_cache:
+                dbus_pl = self.segmented_cache[s_id]
+            else:
+                dbus_pl = self.segmented[s_id]
+                self.segmented_cache[s_id] = dbus_pl
+                del self.segmented[pl[1]]
+            
+        else:
+            dbus_pl = pl[1]
         
-        msg = debus.marshalling.read_message(dbus_pl)
+        try:
+            msg = debus.marshalling.read_message(dbus_pl)
+        except Exception as ex:
+            logging.exception('')
+            return True, '%s %r' % (ex, pl)
         assert(len(msg) == 1)
         msg = msg[0]
         
@@ -70,6 +104,7 @@ class DBusDecoderPlugin(BaseDecoderPlugin):
             msg.member,
             msg.payload,
         )
+        ret = self.formats.get(msg.message_type, '{msg}').format(msg=msg)
         return True, ret
 
 class DecoderMaster(BaseDecoderPlugin):
@@ -83,7 +118,7 @@ class DecoderMaster(BaseDecoderPlugin):
                     return True
         except:
             logging.exception('')
-        return False
+        return True
 
     def decode_message(self, msg):
         try:
